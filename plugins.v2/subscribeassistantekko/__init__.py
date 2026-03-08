@@ -1827,7 +1827,13 @@ class SubscribeAssistantEkko(_PluginBase):
             return
 
         # 如果订阅类型不在清理整理记录的策略中，则直接返回
-        subscribe_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            return
+        try:
+            subscribe_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return
         if subscribe_type not in self._auto_best_clear_history_types:
             logger.debug(f"{self.__format_subscribe(subscribe)}，尚未开启清理整理记录，跳过处理")
             return
@@ -1837,6 +1843,8 @@ class SubscribeAssistantEkko(_PluginBase):
 
         if subscribe_type == MediaType.TV:
             meta = self.__get_subscribe_meta(subscribe)
+            if not meta:
+                return
             histories = self.transferhistory_oper.get_by(tmdbid=subscribe.tmdbid, mtype=subscribe.type,
                                                          season=meta.season)
         else:
@@ -2585,7 +2593,16 @@ class SubscribeAssistantEkko(_PluginBase):
         if not subscribe:
             return
 
-        media_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            logger.warning(f"订阅 ID {subscribe.id} 类型为空，跳过处理删除后续任务")
+            return
+
+        try:
+            media_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 ID {subscribe.id} 类型无效: '{subscribe.type}'，跳过处理删除后续任务")
+            return
+
         update_data = {}
         if media_type == MediaType.TV:
             episodes = torrent_task.get("episodes") or []
@@ -2858,7 +2875,13 @@ class SubscribeAssistantEkko(_PluginBase):
             return False
 
         # 检查是否已经配置了无下载天数
-        subscribe_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            return False
+        try:
+            subscribe_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return False
         if subscribe_type == MediaType.TV and self._auto_pause_tv_no_download_days is None:
             return False
         if subscribe_type == MediaType.MOVIE and self._auto_pause_movie_no_download_days is None:
@@ -2914,7 +2937,8 @@ class SubscribeAssistantEkko(_PluginBase):
         self.clear_tasks(subscribe_id=subscribe.id, subscribe=subscribe.to_dict())
 
         meta = self.__get_subscribe_meta(subscribe=subscribe)
-        msg_title = f"{mediainfo.title_year} {meta.season} 近 {no_download_days} 天未有下载记录，已标记{action_name}"
+        season_str = f" {meta.season}" if meta else ""
+        msg_title = f"{mediainfo.title_year}{season_str} 近 {no_download_days} 天未有下载记录，已标记{action_name}"
         self.__send_subscribe_status_msg(subscribe=subscribe, mediainfo=mediainfo, msg_title=msg_title)
         return True
 
@@ -2987,7 +3011,13 @@ class SubscribeAssistantEkko(_PluginBase):
             return
 
         # 检查是否已经配置了暂停天数
-        subscribe_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            return
+        try:
+            subscribe_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return
         if subscribe_type == MediaType.TV and (
                 self._auto_pause_tv_air_days is None or self._auto_pause_tv_latest_days is None):
             return
@@ -3029,10 +3059,11 @@ class SubscribeAssistantEkko(_PluginBase):
 
         # 构造标题，根据状态动态调整
         meta = self.__get_subscribe_meta(subscribe=subscribe)
+        season_str = f" {meta.season}" if meta else ""
         if pause:
-            msg_title = f"{mediainfo.title_year} {meta.season} {reason}满足订阅暂停，已标记暂停"
+            msg_title = f"{mediainfo.title_year}{season_str} {reason}满足订阅暂停，已标记暂停"
         else:
-            msg_title = f"{mediainfo.title_year} {meta.season} {reason}不再满足订阅暂停，已标记订阅中"
+            msg_title = f"{mediainfo.title_year}{season_str} {reason}不再满足订阅暂停，已标记订阅中"
 
         self.__send_subscribe_status_msg(subscribe=subscribe, mediainfo=mediainfo,
                                          air_day=f"{reason}：{air_day}", msg_title=msg_title)
@@ -3212,10 +3243,11 @@ class SubscribeAssistantEkko(_PluginBase):
 
                 # 构造标题，根据状态动态调整
                 meta = self.__get_subscribe_meta(subscribe=subscribe)
+                season_str = f" {meta.season}" if meta else ""
                 if tv_pending:
-                    msg_title = f"{mediainfo.title_year} {meta.season} 满足上映待定，已标记待定"
+                    msg_title = f"{mediainfo.title_year}{season_str} 满足上映待定，已标记待定"
                 else:
-                    msg_title = f"{mediainfo.title_year} {meta.season} 不再满足上映待定，已标记订阅中"
+                    msg_title = f"{mediainfo.title_year}{season_str} 不再满足上映待定，已标记订阅中"
 
                 if subscribe.state == target_state:
                     # 如果订阅目标状态一致，但是订阅待定状态已变更，需要更新订阅集数以及推送消息
@@ -3426,7 +3458,12 @@ class SubscribeAssistantEkko(_PluginBase):
             return "无效的订阅信息"
 
         # 基于订阅类型拼接不同的字符串格式
-        mediatype = MediaType(subscribe.type)
+        try:
+            mediatype = MediaType(subscribe.type)
+        except ValueError:
+            year = subscribe.year if subscribe.year else "Unknown"
+            return f"无效类型: {subscribe.name} ({year}) [{subscribe.id}]"
+
         year = subscribe.year if subscribe.year else "Unknown"
         if mediatype == MediaType.TV:
             return f"剧集: {subscribe.name} ({year}) 季{subscribe.season} [{subscribe.id}]"
@@ -3740,15 +3777,21 @@ class SubscribeAssistantEkko(_PluginBase):
         return ""
 
     @staticmethod
-    def __get_subscribe_meta(subscribe: Subscribe) -> MetaInfo:
+    def __get_subscribe_meta(subscribe: Subscribe) -> Optional[MetaInfo]:
         """
         获取订阅元数据
         """
-        meta = MetaInfo(subscribe.name)
-        meta.year = subscribe.year
-        meta.begin_season = subscribe.season or None
-        meta.type = MediaType(subscribe.type)
-        return meta
+        if not subscribe or not subscribe.type:
+            return None
+        try:
+            meta = MetaInfo(subscribe.name)
+            meta.year = subscribe.year
+            meta.begin_season = subscribe.season or None
+            meta.type = MediaType(subscribe.type)
+            return meta
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return None
 
     def process_best_version_complete(self, subscribes: list[Subscribe]):
         """
@@ -3819,7 +3862,13 @@ class SubscribeAssistantEkko(_PluginBase):
             return
 
         # 如果订阅类型不在自动洗版的策略中，则直接返回
-        subscribe_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            return
+        try:
+            subscribe_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return
         if subscribe_type not in self._auto_best_types:
             logger.debug(f"{self.__format_subscribe(subscribe)}，尚未开启自动洗版，跳过处理")
             return
@@ -4108,9 +4157,17 @@ class SubscribeAssistantEkko(_PluginBase):
         """
         获取关联的下载记录
         """
-        subscribe_type = MediaType(subscribe.type)
+        if not subscribe.type:
+            return []
+        try:
+            subscribe_type = MediaType(subscribe.type)
+        except ValueError:
+            logger.warning(f"订阅 {subscribe.name} (ID: {subscribe.id}) 类型无效: '{subscribe.type}'")
+            return []
         if subscribe_type == MediaType.TV:
             meta = self.__get_subscribe_meta(subscribe)
+            if not meta:
+                return []
             downloads = self.downloadhistory_oper.get_last_by(mtype=subscribe.type, title=subscribe.name,
                                                               year=subscribe.year, season=meta.season,
                                                               tmdbid=subscribe.tmdbid)
